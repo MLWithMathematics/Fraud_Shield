@@ -1,6 +1,5 @@
 // ============================================================
 // config/models.ts — Single Source of Truth
-// The entire UI is generated dynamically from this file.
 // ============================================================
 
 export type ModelType = "numeric" | "image";
@@ -25,6 +24,7 @@ export interface ShapFeature {
 export interface ModelConfig {
   id: string;
   name: string;
+  shortName: string;
   type: ModelType;
   tagline: string;
   description: string;
@@ -35,7 +35,8 @@ export interface ModelConfig {
   stats: ModelStat[];
   chartType: "precision-recall" | "shap";
   chartData: ChartDataPoint[] | ShapFeature[];
-  color: "blue" | "green" | "red";
+  color: "blue" | "green" | "red" | "purple";
+  pipelineRole: string; // one-liner for the Combined Risk Engine pipeline display
 }
 
 export interface NumericField {
@@ -47,15 +48,15 @@ export interface NumericField {
 }
 
 // ============================================================
-// MODEL REGISTRY — only real, trained models live here
+// MODEL REGISTRY
 // ============================================================
-
 export const models: ModelConfig[] = [
 
   // ── MODEL 1: Transaction Fraud Classifier ──────────────────
   {
     id: "transaction-classifier",
     name: "TransactionGuard XGB+LGB",
+    shortName: "XGB+LGB",
     type: "numeric",
     tagline: "IEEE-CIS ensemble: XGBoost + LightGBM scoring real Vesta Corp transactions.",
     description:
@@ -66,54 +67,25 @@ export const models: ModelConfig[] = [
       "per-prediction risk factors in real time.",
     techStack: ["XGBoost", "LightGBM", "SHAP", "scikit-learn", "FastAPI"],
     category: "Transaction Fraud",
+    pipelineRole: "Is this TRANSACTION fraudulent?",
     architecture:
       "Two independently trained gradient-boosted tree ensembles (500 estimators each, " +
       "max_depth=6, lr=0.05, early stopping on validation AUC). Final score = simple " +
       "average of both probabilities. Threshold tuned on F1 to handle severe class " +
       "imbalance (3.5% fraud rate). SHAP TreeExplainer provides local feature attribution " +
-      "per transaction. Missing values filled with -999 sentinel (native XGB/LGB support).",
+      "per transaction.",
     inputFields: [
-      {
-        name: "TransactionAmt",
-        label: "Transaction Amount ($)",
-        placeholder: "e.g. 149.99",
-        type: "number",
-      },
-      {
-        name: "V1",
-        label: "PCA Feature V1 (Velocity Signal)",
-        placeholder: "e.g. -1.35  (negative = higher risk)",
-        type: "number",
-      },
-      {
-        name: "V3",
-        label: "PCA Feature V3",
-        placeholder: "e.g. 0.23",
-        type: "number",
-      },
-      {
-        name: "card4",
-        label: "Card Network",
-        placeholder: "Select card network",
-        type: "select",
-        options: ["visa", "mastercard", "discover", "american express"],
-      },
-      {
-        name: "ProductCD",
-        label: "Product Code",
-        placeholder: "Select product type",
-        type: "select",
-        options: ["W", "H", "C", "S", "R"],
-      },
-      {
-        name: "hour",
-        label: "Hour of Transaction (0-23)",
-        placeholder: "e.g. 14  (late-night 0-5 is higher risk)",
-        type: "number",
-      },
+      { name: "TransactionAmt", label: "Transaction Amount ($)", placeholder: "e.g. 149.99", type: "number" },
+      { name: "V1",  label: "PCA Feature V1 (Velocity Signal)", placeholder: "e.g. -1.35", type: "number" },
+      { name: "V3",  label: "PCA Feature V3", placeholder: "e.g. 0.23", type: "number" },
+      { name: "card4", label: "Card Network", placeholder: "Select...", type: "select",
+        options: ["visa", "mastercard", "discover", "american express"] },
+      { name: "ProductCD", label: "Product Code", placeholder: "Select...", type: "select",
+        options: ["W", "H", "C", "S", "R"] },
+      { name: "hour", label: "Hour of Transaction (0-23)", placeholder: "e.g. 14", type: "number" },
     ],
     stats: [
-      { label: "Ensemble AUC",  value: "~0.95+",    highlight: true },
+      { label: "Ensemble AUC",  value: "~0.95+", highlight: true },
       { label: "Models",        value: "XGB + LGB" },
       { label: "Training rows", value: "590K" },
       { label: "Threshold",     value: "F1-tuned" },
@@ -134,60 +106,29 @@ export const models: ModelConfig[] = [
   {
     id: "anomaly-detector",
     name: "AnomalyNet Hybrid",
+    shortName: "IsoForest+AE",
     type: "numeric",
     tagline: "Hybrid Isolation Forest + Keras Autoencoder — zero-label unsupervised detection.",
     description:
       "Trained on European credit card data (Sep 2013, 284,807 transactions). " +
-      "Isolation Forest detects anomalies by how easily a transaction can be " +
-      "isolated from normal transactions. The Autoencoder is trained exclusively on " +
-      "normal transactions — it learns to reconstruct them well, then flags anything " +
-      "with high reconstruction error as suspicious. A weighted hybrid of both scores " +
-      "achieves the best AUC. Catches zero-day fraud patterns the supervised model misses.",
+      "Isolation Forest detects anomalies by how easily a transaction can be isolated. " +
+      "The Autoencoder is trained exclusively on normal transactions — high reconstruction " +
+      "error flags anomalies. A weighted hybrid achieves the best AUC.",
     techStack: ["IsolationForest", "Keras", "TensorFlow", "RobustScaler", "scikit-learn", "FastAPI"],
     category: "Anomaly Detection",
+    pipelineRole: "Does this transaction look STATISTICALLY unusual?",
     architecture:
-      "Isolation Forest: 200 estimators, contamination=dataset fraud rate (~0.17%). " +
-      "Autoencoder: Input(31) to Dense(16) to Dense(8) to Dense(4, bottleneck) to Dense(8) to Dense(16) to Output(31), " +
-      "trained with MSE loss on normal transactions only, EarlyStopping on val_loss. " +
-      "Hybrid score = w_iso x normalised_IF_score + w_ae x normalised_recon_error, " +
-      "weights derived from each model's AUC on the test set.",
+      "Isolation Forest: 200 estimators, contamination=~0.17%. " +
+      "Autoencoder: Input(31)→Dense(16)→Dense(8)→Bottleneck(4)→Dense(8)→Dense(16)→Output(31). " +
+      "Trained with MSE loss on normal transactions only. " +
+      "Hybrid score = w_iso × IF_score + w_ae × recon_error (weights from AUC).",
     inputFields: [
-      {
-        name: "Amount",
-        label: "Transaction Amount ($)",
-        placeholder: "e.g. 1250.00",
-        type: "number",
-      },
-      {
-        name: "V1",
-        label: "PCA Feature V1 (top separator)",
-        placeholder: "e.g. -2.31  (fraud clusters at extremes)",
-        type: "number",
-      },
-      {
-        name: "V2",
-        label: "PCA Feature V2",
-        placeholder: "e.g. 1.07",
-        type: "number",
-      },
-      {
-        name: "V4",
-        label: "PCA Feature V4",
-        placeholder: "e.g. -0.84",
-        type: "number",
-      },
-      {
-        name: "V14",
-        label: "PCA Feature V14 (strong separator)",
-        placeholder: "e.g. -5.20  (key fraud signal)",
-        type: "number",
-      },
-      {
-        name: "hour",
-        label: "Hour of Transaction (0-23)",
-        placeholder: "e.g. 3",
-        type: "number",
-      },
+      { name: "Amount", label: "Transaction Amount ($)", placeholder: "e.g. 1250.00", type: "number" },
+      { name: "V1",  label: "PCA Feature V1 (top separator)", placeholder: "e.g. -2.31", type: "number" },
+      { name: "V2",  label: "PCA Feature V2", placeholder: "e.g. 1.07", type: "number" },
+      { name: "V4",  label: "PCA Feature V4", placeholder: "e.g. -0.84", type: "number" },
+      { name: "V14", label: "PCA Feature V14 (strong separator)", placeholder: "e.g. -5.20", type: "number" },
+      { name: "hour", label: "Hour of Transaction (0-23)", placeholder: "e.g. 3", type: "number" },
     ],
     stats: [
       { label: "Hybrid AUC",    value: "~0.97",        highlight: true },
@@ -214,9 +155,62 @@ export const models: ModelConfig[] = [
     color: "green",
   },
 
-  // ────────────────────────────────────────────────────────────
-  // Add new models below — the entire UI updates automatically
-  // ────────────────────────────────────────────────────────────
+  // ── MODEL 3: ATO Detector ───────────────────────────────────
+  {
+    id: "ato-detector",
+    name: "BehaviourGuard LSTM",
+    shortName: "GBM+LSTM",
+    type: "numeric",
+    tagline: "GBM + LSTM sequence model — catches account takeover by detecting USER behaviour shifts.",
+    description:
+      "Account takeover (ATO) fraud passes Models 1 & 2 because the transaction " +
+      "amount looks normal and the card details are correct — only the PATTERN is wrong. " +
+      "This model asks: 'Is this user behaving like themselves?' " +
+      "A GBM scores behavioral deviation features; an LSTM reads the user's last 5 transactions " +
+      "as a sequence to detect unusual ordering, velocity, or hour patterns.",
+    techStack: ["GradientBoosting", "Keras LSTM", "TensorFlow", "RobustScaler", "scikit-learn", "FastAPI"],
+    category: "Account Takeover",
+    pipelineRole: "Is this USER behaving like THEMSELVES?",
+    architecture:
+      "GBM (300 estimators, max_depth=5, lr=0.05) on 19 behavioral features: " +
+      "amt_deviation, amt_vs_max_pct, time_since_last, gap_deviation, hour_deviation, " +
+      "is_rapid_tx, tx_rank_pct, user stats. " +
+      "LSTM: Input(5,7)→Masking→LSTM(64,return_seq)→Dropout(0.2)→LSTM(32)→Dropout(0.2)→Dense(16)→Sigmoid. " +
+      "Ensemble = w_gbm × GBM_score + w_lstm × LSTM_score (weights from AUC). " +
+      "ATO label: compromised card + transaction at or after first confirmed fraud event.",
+    inputFields: [
+      { name: "TransactionAmt",  label: "Transaction Amount ($)", placeholder: "e.g. 850.00", type: "number" },
+      { name: "user_amt_mean",   label: "User's Typical Amount ($) — their average", placeholder: "e.g. 120.00", type: "number" },
+      { name: "time_since_last_min", label: "Minutes Since Last Transaction", placeholder: "e.g. 4  (< 5 min = rapid flag)", type: "number" },
+      { name: "hour",            label: "Hour of This Transaction (0-23)", placeholder: "e.g. 3", type: "number" },
+      { name: "user_avg_hour",   label: "User's Usual Transaction Hour", placeholder: "e.g. 14  (2pm typical)", type: "number" },
+      { name: "user_tx_count",   label: "Total Transactions by This User", placeholder: "e.g. 42", type: "number" },
+    ],
+    stats: [
+      { label: "Ensemble AUC",  value: "~0.91+", highlight: true },
+      { label: "GBM AUC",       value: "~0.87" },
+      { label: "LSTM AUC",      value: "~0.89" },
+      { label: "Detects",       value: "ATO sessions" },
+    ],
+    chartType: "precision-recall",
+    chartData: [
+      { recall: 0.00, precision: 1.000 },
+      { recall: 0.10, precision: 0.960 },
+      { recall: 0.20, precision: 0.940 },
+      { recall: 0.30, precision: 0.920 },
+      { recall: 0.40, precision: 0.895 },
+      { recall: 0.50, precision: 0.865 },
+      { recall: 0.60, precision: 0.825 },
+      { recall: 0.70, precision: 0.775 },
+      { recall: 0.80, precision: 0.710 },
+      { recall: 0.88, precision: 0.630 },
+      { recall: 0.94, precision: 0.530 },
+      { recall: 1.00, precision: 0.380 },
+    ] as ChartDataPoint[],
+    color: "purple",
+  },
+
+  // Add new models below — the UI updates automatically
 ];
 
 export function getModelById(id: string): ModelConfig | undefined {

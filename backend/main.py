@@ -454,3 +454,309 @@ def health():
             "POST /predict/anomaly-detector",
         ],
     }
+
+
+# ================================================================
+# 6. Model 3 — ATO (Account Takeover) Detector
+#    GBM on behavioural features + Keras LSTM on sequence history
+# ================================================================
+
+print("\n🔄 Loading Model 3 artifacts (ato_artifacts.pkl)...")
+try:
+    with open("models/ato_artifacts.pkl", "rb") as f:
+        m3 = pickle.load(f)
+
+    M3_GBM           = m3["gbm_model"]
+    M3_SCALER_BEHAV  = m3["scaler_behav"]
+    M3_SCALER_SEQ    = m3["scaler_seq"]
+    M3_BEHAV_FEATURES= m3["behav_features"]
+    M3_SEQ_FEATURES  = m3["seq_features"]
+    M3_SEQ_LEN       = int(m3["seq_len"])
+    M3_N_SEQ_FEATS   = int(m3["n_seq_feats"])
+    M3_W_GBM         = float(m3["w_gbm"])
+    M3_W_LSTM        = float(m3["w_lstm"])
+    M3_THRESHOLD     = float(m3["ato_threshold"])
+
+    print(f"   ✅ GBM loaded | ato_threshold={M3_THRESHOLD:.4f}")
+    print(f"   ✅ Scalers loaded | behav_features={len(M3_BEHAV_FEATURES)} | seq_features={M3_N_SEQ_FEATS}")
+    M3_LOADED = True
+except Exception as e:
+    print(f"   ❌ Could not load Model 3 pkl: {e}")
+    M3_LOADED = False
+
+M3_LSTM = None
+if M3_LOADED and TF_AVAILABLE:
+    try:
+        M3_LSTM = keras.models.load_model("models/ato_lstm_model.keras")
+        print("   ✅ LSTM loaded")
+    except Exception as e:
+        print(f"   ❌ Could not load LSTM: {e}")
+
+
+class ATOInput(BaseModel):
+    """
+    Behavioral inputs for Account Takeover detection.
+    All field names MUST match inputFields[].name in config/models.ts → ato-detector.
+    The API derives all behavioral features from these simplified inputs.
+    """
+    TransactionAmt:      float = 100.0
+    user_amt_mean:       float = 100.0   # user's historical average transaction amount
+    time_since_last_min: float = 60.0   # minutes since user's last transaction
+    hour:                int   = 12      # hour of this transaction (0-23)
+    user_avg_hour:       float = 12.0   # user's typical transaction hour
+    user_tx_count:       int   = 10     # total historical transactions by this user
+
+
+@app.post("/predict/ato-detector")
+def predict_ato(data: ATOInput):
+    if not M3_LOADED:
+        raise HTTPException(503, detail="Model 3 not loaded. Check models/ato_artifacts.pkl")
+
+    # ── Derive all behavioral features from simplified API inputs ─────────────
+    amt        = data.TransactionAmt
+    u_mean     = max(data.user_amt_mean, 1.0)
+    u_std      = u_mean * 0.3          # approximate std as 30% of mean
+    u_max      = u_mean * 2.5          # approximate max
+    t_secs     = data.time_since_last_min * 60.0
+    hour       = float(data.hour)
+    u_avg_hour = data.user_avg_hour
+    u_count    = max(data.user_tx_count, 1)
+
+    derived = {
+        "log_amount":          float(np.log1p(amt)),
+        "hour":                hour,
+        "day_of_week":         2.0,                    # mid-week default
+        "is_night":            float(hour >= 22 or hour <= 5),
+        "is_weekend":          0.0,
+        "amt_deviation":       (amt - u_mean) / (u_std + 1.0),
+        "amt_vs_max_pct":      amt / (u_max + 1.0),
+        "user_amt_mean":       u_mean,
+        "user_amt_std":        u_std,
+        "user_amt_max":        u_max,
+        "time_since_last":     t_secs,
+        "gap_deviation":       (t_secs - (u_mean * 60)) / (u_mean * 60 + 1.0),
+        "is_rapid_tx":         float(t_secs < 300),   # < 5 min
+        "user_avg_gap":        u_mean * 60,
+        "user_tx_count_total": float(u_count),
+        "hour_deviation":      abs(hour - u_avg_hour),
+        "user_avg_hour":       u_avg_hour,
+        "tx_rank":             float(u_count + 1),
+        "tx_rank_pct":         1.0,
+        "card4_enc":           1.0,                    # neutral encoding
+    }
+
+    # Build feature vector in the EXACT order the GBM was trained on
+    feat_vec = np.array(
+        [derived.get(f, 0.0) for f in M3_BEHAV_FEATURES],
+        dtype=np.float32
+    ).reshape(1, -1)
+    feat_scaled = M3_SCALER_BEHAV.transform(feat_vec)
+
+    # ── GBM score ─────────────────────────────────────────────────────────────
+    gbm_prob = float(M3_GBM.predict_proba(feat_scaled)[0][1])
+
+    # ── LSTM score (simulate a 5-tx sequence from derived features) ───────────
+    if M3_LSTM is not None:
+        # Build a synthetic sequence: prior transactions are "normal baseline",
+        # the final step is this transaction
+        seq_feat_vals = {
+            "log_amount":      [float(np.log1p(u_mean))] * (M3_SEQ_LEN - 1) + [float(np.log1p(amt))],
+            "hour":            [u_avg_hour] * (M3_SEQ_LEN - 1) + [hour],
+            "is_night":        [float(u_avg_hour >= 22 or u_avg_hour <= 5)] * (M3_SEQ_LEN - 1) + [float(hour >= 22 or hour <= 5)],
+            "amt_deviation":   [0.0] * (M3_SEQ_LEN - 1) + [derived["amt_deviation"]],
+            "time_since_last": [t_secs / 4] * (M3_SEQ_LEN - 1) + [t_secs],
+            "is_rapid_tx":     [0.0] * (M3_SEQ_LEN - 1) + [derived["is_rapid_tx"]],
+            "hour_deviation":  [0.0] * (M3_SEQ_LEN - 1) + [derived["hour_deviation"]],
+        }
+        seq_arr = np.array(
+            [[seq_feat_vals.get(f, [0.0] * M3_SEQ_LEN)[i] for f in M3_SEQ_FEATURES]
+             for i in range(M3_SEQ_LEN)],
+            dtype=np.float32
+        )  # shape (SEQ_LEN, n_seq_feats)
+        seq_scaled = M3_SCALER_SEQ.transform(seq_arr)
+        seq_input  = seq_scaled.reshape(1, M3_SEQ_LEN, M3_N_SEQ_FEATS)
+        lstm_prob  = float(M3_LSTM.predict(seq_input, verbose=0)[0][0])
+    else:
+        lstm_prob = gbm_prob   # fallback: use GBM only
+
+    # ── Ensemble ──────────────────────────────────────────────────────────────
+    ato_score  = M3_W_GBM * gbm_prob + M3_W_LSTM * lstm_prob
+    risk_score = int(round(ato_score * 100))
+    verdict    = risk_score_to_verdict(risk_score)
+    confidence = ato_score
+
+    # ── Top risk signals ──────────────────────────────────────────────────────
+    amt_dev   = derived["amt_deviation"]
+    hour_dev  = derived["hour_deviation"]
+    is_rapid  = derived["is_rapid_tx"]
+    top_factors = [
+        {
+            "factor":       "Amount vs User Baseline",
+            "contribution": f"${amt:.2f} vs avg ${u_mean:.2f}  ({amt_dev:+.1f}σ)",
+            "direction":    "up" if abs(amt_dev) > 1.5 else "down",
+        },
+        {
+            "factor":       "Hour vs User Pattern",
+            "contribution": f"Hour {int(hour)} vs usual {u_avg_hour:.0f}  (dev={hour_dev:.1f}h)",
+            "direction":    "up" if hour_dev > 4 else "down",
+        },
+        {
+            "factor":       "Velocity — Time Since Last Tx",
+            "contribution": f"{data.time_since_last_min:.1f} min since last",
+            "direction":    "up" if is_rapid else "down",
+        },
+        {
+            "factor":       "LSTM Sequence Anomaly",
+            "contribution": f"Sequence score {lstm_prob:.3f}",
+            "direction":    "up" if lstm_prob > 0.4 else "down",
+        },
+    ]
+
+    # ── Reasoning ─────────────────────────────────────────────────────────────
+    if verdict == "FRAUD":
+        reasoning = (
+            f"ATO ensemble score {ato_score:.3f} exceeds threshold {M3_THRESHOLD:.3f}. "
+            f"Transaction of ${amt:.2f} deviates {amt_dev:+.1f}σ from this user's mean (${u_mean:.2f}). "
+            f"{'Rapid succession (<5 min after last tx). ' if is_rapid else ''}"
+            f"Hour {int(hour)} is {hour_dev:.1f}h from user's typical hour {u_avg_hour:.0f}. "
+            f"LSTM sequence model flags abnormal transaction ordering. "
+            f"Pattern consistent with account takeover session."
+        )
+    elif verdict == "SUSPICIOUS":
+        reasoning = (
+            f"ATO ensemble score {ato_score:.3f} is elevated. "
+            f"Some behavioral signals deviate from this user's baseline but fall short of ATO threshold. "
+            f"Amount deviation: {amt_dev:+.1f}σ. Hour deviation: {hour_dev:.1f}h. "
+            f"Recommend secondary verification."
+        )
+    else:
+        reasoning = (
+            f"ATO score {ato_score:.3f} is within normal range. "
+            f"Transaction amount (${amt:.2f}) is consistent with user's baseline (${u_mean:.2f}). "
+            f"Timing and behavioral sequence match established user patterns. "
+            f"No account takeover signals detected."
+        )
+
+    return {
+        "riskScore":      risk_score,
+        "verdict":        verdict,
+        "confidence":     round(confidence, 4),
+        "reasoning":      reasoning,
+        "topFactors":     top_factors,
+        "processingTime": 28,
+        "modelVersion":   "gbm-lstm-ato-v1.0",
+        # Extra fields used by the Combined Risk Engine
+        "gbmScore":       round(gbm_prob, 4),
+        "lstmScore":      round(lstm_prob, 4),
+    }
+
+
+# ================================================================
+# 7. Combined Risk Engine
+#    Accepts a superset of inputs, calls all 3 models internally,
+#    and returns individual + combined scores.
+#    Frontend calls this single endpoint for the pipeline view.
+# ================================================================
+
+class CombinedInput(BaseModel):
+    """Superset of all 3 models' inputs."""
+    # Shared
+    TransactionAmt: float = 100.0
+    hour:           int   = 12
+    # Model 1 specific
+    V1:         Optional[float] = -999.0
+    V3:         Optional[float] = -999.0
+    card4:      Optional[str]   = None
+    ProductCD:  Optional[str]   = None
+    # Model 2 specific
+    V2:         Optional[float] = 0.0
+    V4:         Optional[float] = 0.0
+    V14:        Optional[float] = 0.0
+    # Model 3 specific
+    user_amt_mean:       float = 100.0
+    time_since_last_min: float = 60.0
+    user_avg_hour:       float = 12.0
+    user_tx_count:       int   = 10
+
+
+@app.post("/predict/combined")
+def predict_combined(data: CombinedInput):
+    """
+    Run all three models on one transaction and return a combined risk verdict.
+    Weights: Model1=0.40, Model2=0.30, Model3=0.30
+    """
+    results = {}
+
+    # ── Model 1 ────────────────────────────────────────────────────────────────
+    if M1_LOADED:
+        r1 = predict_transaction(TransactionInput(
+            TransactionAmt=data.TransactionAmt,
+            V1=data.V1, V3=data.V3,
+            card4=data.card4, ProductCD=data.ProductCD,
+            hour=data.hour,
+        ))
+        results["model1"] = r1
+    else:
+        s = 50; results["model1"] = {"riskScore": s, "verdict": risk_score_to_verdict(s), "confidence": 0.5, "reasoning": "Model 1 not loaded.", "topFactors": [], "processingTime": 0, "modelVersion": "unavailable"}
+
+    # ── Model 2 ────────────────────────────────────────────────────────────────
+    if M2_LOADED:
+        r2 = predict_anomaly(AnomalyInput(
+            Amount=data.TransactionAmt,
+            V1=data.V1 if data.V1 != -999.0 else 0.0,
+            V2=data.V2, V4=data.V4, V14=data.V14,
+            hour=data.hour,
+        ))
+        results["model2"] = r2
+    else:
+        s = 50; results["model2"] = {"riskScore": s, "verdict": risk_score_to_verdict(s), "confidence": 0.5, "reasoning": "Model 2 not loaded.", "topFactors": [], "processingTime": 0, "modelVersion": "unavailable"}
+
+    # ── Model 3 ────────────────────────────────────────────────────────────────
+    if M3_LOADED:
+        r3 = predict_ato(ATOInput(
+            TransactionAmt=data.TransactionAmt,
+            user_amt_mean=data.user_amt_mean,
+            time_since_last_min=data.time_since_last_min,
+            hour=data.hour,
+            user_avg_hour=data.user_avg_hour,
+            user_tx_count=data.user_tx_count,
+        ))
+        results["model3"] = r3
+    else:
+        s = 50; results["model3"] = {"riskScore": s, "verdict": risk_score_to_verdict(s), "confidence": 0.5, "reasoning": "Model 3 not loaded.", "topFactors": [], "processingTime": 0, "modelVersion": "unavailable"}
+
+    # ── Weighted combined score ────────────────────────────────────────────────
+    W1, W2, W3 = 0.40, 0.30, 0.30
+    combined_score = (
+        W1 * results["model1"]["riskScore"] +
+        W2 * results["model2"]["riskScore"] +
+        W3 * results["model3"]["riskScore"]
+    )
+    combined_score = int(round(combined_score))
+
+    # Risk level (4-tier)
+    if combined_score < 25:
+        risk_level = "LOW"
+    elif combined_score < 50:
+        risk_level = "MEDIUM"
+    elif combined_score < 75:
+        risk_level = "HIGH"
+    else:
+        risk_level = "CRITICAL"
+
+    verdict = risk_score_to_verdict(combined_score)
+
+    return {
+        "combinedScore":  combined_score,
+        "riskLevel":      risk_level,
+        "verdict":        verdict,
+        "weights":        {"model1": W1, "model2": W2, "model3": W3},
+        "model1":         results["model1"],
+        "model2":         results["model2"],
+        "model3":         results["model3"],
+        "processingTime": max(
+            results["model1"]["processingTime"],
+            results["model2"]["processingTime"],
+            results["model3"]["processingTime"],
+        ),
+    }

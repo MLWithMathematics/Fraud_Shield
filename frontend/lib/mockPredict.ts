@@ -1,15 +1,6 @@
 // ============================================================
-// lib/mockPredict.ts
-//
-// Routing layer between the Testing Lab UI and the backend.
-//
-// HOW IT WORKS:
-//   - Models with a real backend entry below call fetch() to FastAPI.
-//   - Models still in MOCK_MODELS use local simulation (no backend needed).
-//
-// TO CONNECT A NEW MODEL:
-//   1. Remove its id from MOCK_MODELS set below.
-//   2. That's it — it will automatically use the real API.
+// lib/mockPredict.ts — API routing layer
+// Real models call FastAPI. document-cnn stays mock.
 // ============================================================
 
 export interface PredictionInput {
@@ -19,90 +10,85 @@ export interface PredictionInput {
 }
 
 export interface PredictionResult {
-  riskScore: number;           // 0–100
-  verdict: "SAFE" | "SUSPICIOUS" | "FRAUD";
-  confidence: number;          // 0.0–1.0
-  reasoning: string;
-  topFactors: Array<{
-    factor: string;
-    contribution: string;
-    direction: "up" | "down";
-  }>;
-  processingTime: number;      // milliseconds
-  modelVersion: string;
+  riskScore:       number;
+  verdict:         "SAFE" | "SUSPICIOUS" | "FRAUD";
+  confidence:      number;
+  reasoning:       string;
+  topFactors:      Array<{ factor: string; contribution: string; direction: "up" | "down" }>;
+  processingTime:  number;
+  modelVersion:    string;
+  gbmScore?:       number;
+  lstmScore?:      number;
 }
 
-// ── Models that still use local mock logic (no FastAPI needed) ────────────────
-// Remove a model id from here when you wire it up to a real backend.
+export interface CombinedResult {
+  combinedScore: number;
+  riskLevel:     "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  verdict:       "SAFE" | "SUSPICIOUS" | "FRAUD";
+  weights:       { model1: number; model2: number; model3: number };
+  model1:        PredictionResult;
+  model2:        PredictionResult;
+  model3:        PredictionResult;
+  processingTime: number;
+}
+
+// Models that still use local mock logic
 const MOCK_MODELS = new Set(["document-cnn"]);
 
-// ── FastAPI base URL — set in .env.local ─────────────────────────────────────
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-// ================================================================
-// MAIN PREDICT FUNCTION
-// Called by the Testing Lab UI for every model.
-// ================================================================
+// ── Single model predict ──────────────────────────────────────
 export async function predict(input: PredictionInput): Promise<PredictionResult> {
-
-  // ── Real API path ──────────────────────────────────────────────────────────
   if (!MOCK_MODELS.has(input.modelId)) {
     return callRealAPI(input);
   }
-
-  // ── Mock path (document-cnn and any model still in MOCK_MODELS) ────────────
-  await new Promise((r) => setTimeout(r, 2000)); // simulate inference delay
+  await new Promise((r) => setTimeout(r, 2000));
   return mockDocumentCnn(input.imageFile);
 }
 
+// ── Combined Risk Engine ──────────────────────────────────────
+export async function predictCombined(
+  fields: Record<string, string>
+): Promise<CombinedResult> {
+  const parsed: Record<string, string | number> = {};
+  for (const [k, v] of Object.entries(fields)) {
+    const n = Number(v);
+    parsed[k] = isNaN(n) ? v : n;
+  }
+  const res = await fetch(`${API_BASE}/predict/combined`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(parsed),
+  });
+  if (!res.ok) throw new Error(`Combined API error ${res.status}`);
+  return res.json();
+}
 
-// ================================================================
-// REAL API CALLER
-// Sends form fields as JSON to FastAPI.
-// FastAPI response must match the PredictionResult shape above.
-// ================================================================
 async function callRealAPI(input: PredictionInput): Promise<PredictionResult> {
-
-  // Convert string field values to numbers where possible
-  // (HTML form inputs always come in as strings)
-  const parsedFields: Record<string, string | number> = {};
+  const parsed: Record<string, string | number> = {};
   if (input.fields) {
-    for (const [key, val] of Object.entries(input.fields)) {
-      const num = Number(val);
-      parsedFields[key] = isNaN(num) ? val : num;
+    for (const [k, v] of Object.entries(input.fields)) {
+      const n = Number(v);
+      parsed[k] = isNaN(n) ? v : n;
     }
   }
-
   const url = `${API_BASE}/predict/${input.modelId}`;
-
   let response: Response;
   try {
     response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(parsedFields),
+      body: JSON.stringify(parsed),
     });
-  } catch (networkErr) {
-    // Network error — FastAPI server probably not running
+  } catch {
     throw new Error(
-      `Cannot reach the prediction server at ${API_BASE}. ` +
-      `Make sure you ran: uvicorn main:app --reload --port 8000`
+      `Cannot reach ${API_BASE}. Run: uvicorn main:app --reload --port 8000`
     );
   }
-
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`API returned ${response.status}: ${detail}`);
-  }
-
+  if (!response.ok) throw new Error(`API ${response.status}`);
   return response.json();
 }
 
-
-// ================================================================
-// MOCK: Document CNN (demo only — no real model file needed)
-// ================================================================
 function scoreToVerdict(score: number): "SAFE" | "SUSPICIOUS" | "FRAUD" {
   if (score < 35) return "SAFE";
   if (score < 70) return "SUSPICIOUS";
@@ -110,24 +96,15 @@ function scoreToVerdict(score: number): "SAFE" | "SUSPICIOUS" | "FRAUD" {
 }
 
 function mockDocumentCnn(imageFile?: File): PredictionResult {
+  void imageFile;
   const score = Math.round(20 + Math.random() * 75);
-  const verdict = scoreToVerdict(score);
-
   return {
-    riskScore: score,
-    verdict,
+    riskScore: score, verdict: scoreToVerdict(score),
     confidence: 0.70 + Math.random() * 0.28,
-    reasoning:
-      verdict === "FRAUD"
-        ? `ELA analysis detected significant JPEG compression inconsistencies around the document serial number and photo regions. DCT coefficient histogram divergence score: ${(0.3 + Math.random() * 0.5).toFixed(3)} (threshold: 0.15). High probability of digital splicing.`
-        : verdict === "SUSPICIOUS"
-        ? `Minor texture inconsistencies detected in document security features. Noise residual analysis shows mild deviation. Manual review recommended.`
-        : `Document passes all integrity checks. JPEG noise residuals, font rendering metrics, and geometry are consistent with authentic samples.`,
+    reasoning: "Document mock analysis result.",
     topFactors: [
-      { factor: "JPEG DCT Anomaly",          contribution: (Math.random() * 0.5).toFixed(3), direction: Math.random() > 0.5 ? "up" : "down" },
-      { factor: "Font Rendering Integrity",   contribution: `${(88 + Math.random() * 12).toFixed(1)}%`, direction: Math.random() > 0.6 ? "down" : "up" },
-      { factor: "ELA Heatmap Score",          contribution: (Math.random() * 0.4).toFixed(3), direction: Math.random() > 0.4 ? "up" : "down" },
-      { factor: "Security Feature Geometry",  contribution: `${(90 + Math.random() * 10).toFixed(1)}%`, direction: Math.random() > 0.5 ? "down" : "up" },
+      { factor: "JPEG DCT Anomaly", contribution: (Math.random() * 0.5).toFixed(3), direction: "up" },
+      { factor: "Font Rendering", contribution: `${(88 + Math.random() * 12).toFixed(1)}%`, direction: "down" },
     ],
     processingTime: Math.round(60 + Math.random() * 40),
     modelVersion: "docforge-mock-v1.0",
