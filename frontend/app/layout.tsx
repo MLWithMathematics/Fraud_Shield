@@ -5,8 +5,8 @@ import Navbar from "@/components/Navbar";
 export const metadata: Metadata = {
   title: "FraudShield AI — Intelligence Against Financial Crime",
   description:
-    "Production-grade ML fraud detection platform — real-time transaction scoring with XGBoost+LightGBM and unsupervised anomaly detection with Isolation Forest + Autoencoder.",
-  keywords: ["fraud detection", "AI", "machine learning", "XGBoost", "LightGBM", "autoencoder", "anomaly detection"],
+    "3-model fraud detection platform — XGBoost+LightGBM transaction scoring, IsolationForest+Autoencoder anomaly detection, GBM+LSTM account takeover detection. Combined risk engine. Built with Next.js 14 and FastAPI.",
+  keywords: ["fraud detection", "AI", "machine learning", "XGBoost", "LightGBM", "autoencoder", "LSTM", "anomaly detection", "account takeover"],
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -18,17 +18,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       </head>
       <body className="bg-[#0a0a0a] text-gray-200 font-body antialiased">
-        {/* Global grid overlay */}
         <div className="fixed inset-0 bg-grid opacity-100 pointer-events-none z-0" />
-        {/* Hero radial glow */}
-        <div
-          className="fixed inset-0 pointer-events-none z-0"
-          style={{ background: "radial-gradient(ellipse 80% 40% at 50% -5%, rgba(0,82,255,0.12), transparent)" }}
-        />
+        <div className="fixed inset-0 pointer-events-none z-0"
+          style={{ background: "radial-gradient(ellipse 80% 40% at 50% -5%, rgba(0,82,255,0.12), transparent)" }} />
         <Navbar />
         <main className="relative z-10">{children}</main>
 
-        {/* Footer */}
         <footer className="relative z-10 border-t border-white/5 mt-20 py-8">
           <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-4">
             <div className="flex items-center gap-2">
@@ -38,13 +33,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <span className="text-xs text-gray-600 font-mono">FraudShield AI · Built by Shubhankar</span>
             </div>
             <p className="text-xs text-gray-700 font-mono">
-              IEEE-CIS + ULB Credit Card datasets · XGBoost · LightGBM · Keras Autoencoder
+              IEEE-CIS · ULB Credit Card · XGBoost · LightGBM · Keras LSTM
             </p>
-            <div className="flex gap-6">
-              {["Gallery", "GitHub"].map((link) => (
-                <span key={link} className="text-xs text-gray-600 hover:text-gray-400 cursor-pointer transition-colors font-mono">
-                  {link}
-                </span>
+            <div className="flex gap-5">
+              {[
+                { label: "Gallery",     href: "/gallery" },
+                { label: "Risk Engine", href: "/combined" },
+                { label: "How To Use",  href: "/how-to-use" },
+                { label: "GitHub",      href: "#" },
+              ].map((link) => (
+                <a key={link.label} href={link.href}
+                  className="text-xs text-gray-600 hover:text-gray-400 transition-colors font-mono">
+                  {link.label}
+                </a>
               ))}
             </div>
           </div>
