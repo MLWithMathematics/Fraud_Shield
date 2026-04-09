@@ -6,6 +6,49 @@
 #   POST /predict/anomaly-detector        ← Model 2 (IsoForest + Autoencoder)
 # ================================================================
 
+from fastapi import FastAPI, File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+import shutil
+import os
+
+app = FastAPI()
+
+# Configure CORS (Crucial for your Vercel frontend)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://e-commerce-ashen-omega.vercel.app"], # Your Vercel URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.get("/")
+def read_root():
+    return {"status": "FastAPI ML Backend is live!"}
+
+@app.post("/upload/")
+async def process_file(file: UploadFile = File(...)):
+    # 1. Save to Railway's /tmp/ directory
+    temp_file_path = f"/tmp/{file.filename}"
+    
+    try:
+        with open(temp_file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        # 2. --- Your ML Processing Logic Goes Here ---
+        # e.g., image classification, data parsing using scikit-learn/pandas
+        
+        # 3. Clean up the file to free up memory/disk space
+        os.remove(temp_file_path)
+        
+        return {
+            "message": "File successfully uploaded and processed.",
+            "filename": file.filename
+        }
+        
+    except Exception as e:
+        return {"error": str(e)}
+
 import pickle
 import numpy as np
 import pandas as pd
@@ -36,16 +79,16 @@ app = FastAPI(
 
 # Allow the Next.js dev server (port 3000) to call this API.
 # For production: change allow_origins to your real domain.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=[
+#         "http://localhost:3000",
+#         "http://127.0.0.1:3000",
+#     ],
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
 
 
 # ================================================================
