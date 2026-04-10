@@ -16,7 +16,7 @@ app = FastAPI()
 # Configure CORS (Crucial for your Vercel frontend)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://fraudshield2-five.vercel.app/"], # Your Vercel URL
+    allow_origins=["https://fraudshield2-five.vercel.app"], # Your Vercel URL
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
