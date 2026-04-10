@@ -40,11 +40,12 @@ app = FastAPI(
 # Apply CORS to the single app instance
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://fraudshield2-five.vercel.app", # Your Production Vercel URL
-        "http://localhost:3000",                # Your Local Dev URL
-        "http://127.0.0.1:3000"
-    ],
+    # allow_origins=[
+    #     "https://fraudshield2-five.vercel.app", # Your Production Vercel URL
+    #     "http://localhost:3000",                # Your Local Dev URL
+    #     "http://127.0.0.1:3000"
+    # ],
+    allow_origins=["*"], # Temporarily allow ALL domains to fix the block
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
