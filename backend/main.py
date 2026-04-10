@@ -16,7 +16,7 @@ app = FastAPI()
 # Configure CORS (Crucial for your Vercel frontend)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://e-commerce-ashen-omega.vercel.app"], # Your Vercel URL
+    allow_origins=["https://farudshield.vercel.app/"], # Your Vercel URL
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
