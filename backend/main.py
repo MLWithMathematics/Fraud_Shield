@@ -10,63 +10,61 @@ from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 import shutil
 import os
-
-app = FastAPI()
-
-# Configure CORS (Crucial for your Vercel frontend)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["https://fraudshield2-five.vercel.app"], # Your Vercel URL
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-@app.get("/")
-def read_root():
-    return {"status": "FastAPI ML Backend is live!"}
-
-@app.post("/upload/")
-async def process_file(file: UploadFile = File(...)):
-    # 1. Save to Railway's /tmp/ directory
-    temp_file_path = f"/tmp/{file.filename}"
-    
-    try:
-        with open(temp_file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-            
-        # 2. --- Your ML Processing Logic Goes Here ---
-        # e.g., image classification, data parsing using scikit-learn/pandas
-        
-        # 3. Clean up the file to free up memory/disk space
-        os.remove(temp_file_path)
-        
-        return {
-            "message": "File successfully uploaded and processed.",
-            "filename": file.filename
-        }
-        
-    except Exception as e:
-        return {"error": str(e)}
-
-import pickle
-import numpy as np
-import pandas as pd
-from fastapi import FastAPI, HTTPException
+# ================================================================
+# 1. Create App & CORS
+# ================================================================
+from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
+import shutil
+import os
+import pickle
+import numpy as np
+import pandas as pd
 
-# ── Tensorflow / Keras (for Autoencoder) ──────────────────────────────────────
-# We import inside a try/except so the server still boots if TF is not installed
 try:
     from tensorflow import keras
     TF_AVAILABLE = True
 except ImportError:
     TF_AVAILABLE = False
-    print("⚠  TensorFlow not installed — Anomaly Detector endpoint will not work.")
-    print("   Run: pip install tensorflow")
+    print("⚠ TensorFlow not installed — Anomaly Detector endpoint will not work.")
 
+# Initialize the app exactly ONCE
+app = FastAPI(
+    title="FraudShield AI API",
+    description="Prediction endpoints for Transaction Classifier and Anomaly Detector",
+    version="1.0.0",
+)
+
+# Apply CORS to the single app instance
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://fraudshield2-five.vercel.app", # Your Production Vercel URL
+        "http://localhost:3000",                # Your Local Dev URL
+        "http://127.0.0.1:3000"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.post("/upload/")
+async def process_file(file: UploadFile = File(...)):
+    temp_file_path = f"/tmp/{file.filename}"
+    try:
+        with open(temp_file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        os.remove(temp_file_path)
+        return {"message": "File processed.", "filename": file.filename}
+    except Exception as e:
+        return {"error": str(e)}
+
+# ================================================================
+# 2. Load Model Artifacts at Startup
+# ================================================================
+# (Keep the rest of your model loading code exactly as it is below this line)
 
 # ================================================================
 # 1. Create App & CORS
