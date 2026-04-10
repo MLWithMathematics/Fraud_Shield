@@ -84,13 +84,15 @@ export default function ModelCard({ model, index }: Props) {
           </span>
         </div>
 
-        <Link href={`/test/${model.id}`}>
-          <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium transition-all duration-200 group/btn"
+     <Link href={`/test/${model.id}`} className="block w-full">
+          <motion.div 
+            whileHover={{ scale: 1.02 }} 
+            whileTap={{ scale: 0.98 }}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium transition-all duration-200 group/btn cursor-pointer"
             style={{ backgroundColor: accent.bg, border: `1px solid ${accent.border}`, color: accent.color }}>
             Test Model
             <ArrowRight className="w-4 h-4 group-hover/btn:translate-x-0.5 transition-transform" />
-          </motion.button>
+          </motion.div>
         </Link>
       </div>
     </motion.div>
