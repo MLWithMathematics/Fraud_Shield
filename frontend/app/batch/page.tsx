@@ -194,7 +194,8 @@ export default function BatchPage() {
     setProgress(0);
 
     const start = Date.now();
-    const updated = [...rows].map((r) => ({ ...r, status: "pending" as const }));
+    const updated: BatchRow[] = [...rows].map((r) => ({ ...r, status: "pending" }));
+    // const updated = [...rows].map((r) => ({ ...r, status: "pending" as const }));
     setRows(updated);
 
     for (let i = 0; i < updated.length; i++) {

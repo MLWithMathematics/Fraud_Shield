@@ -17,6 +17,7 @@ const accentMap = {
   blue: "#0052FF",
   green: "#00FF41",
   red: "#FF3131",
+  purple:"#7f1eab",
 };
 
 export default function TestPage() {

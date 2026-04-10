@@ -54,7 +54,7 @@ export default function ImageUploader({ onSubmit, loading, accent }: Props) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            {...(getRootProps() as React.HTMLAttributes<HTMLDivElement>)}
+            {...(getRootProps() as any)}
             className="relative cursor-pointer rounded-2xl border-2 border-dashed transition-all duration-200 overflow-hidden"
             style={{
               borderColor: isDragActive ? accent : "rgba(255,255,255,0.1)",
