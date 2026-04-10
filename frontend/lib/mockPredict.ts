@@ -35,8 +35,9 @@ export interface CombinedResult {
 // Models that still use local mock logic
 const MOCK_MODELS = new Set(["document-cnn"]);
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-
+// const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const rawApiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const API_BASE = rawApiUrl.replace(/\/$/, "");
 // ── Single model predict ──────────────────────────────────────
 export async function predict(input: PredictionInput): Promise<PredictionResult> {
   if (!MOCK_MODELS.has(input.modelId)) {
