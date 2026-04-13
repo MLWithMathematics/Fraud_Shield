@@ -7,3 +7,13 @@ build/
 *.log
 .DS_Store
 All new PAtch - FraudShield
+.code-review-graph
+.cursor
+.cursorrules
+.mcp.json
+.opencode.json
+.windsurfrules
+AGENTS.md 
+CLAUDE.md 
+GEMINI.md  
+.claude 
