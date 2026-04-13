@@ -70,11 +70,11 @@ async def process_file(file: UploadFile = File(...)):
 # ================================================================
 # 1. Create App & CORS
 # ================================================================
-app = FastAPI(
-    title="FraudShield AI API",
-    description="Prediction endpoints for Transaction Classifier and Anomaly Detector",
-    version="1.0.0",
-)
+# app = FastAPI(
+#     title="FraudShield AI API",
+#     description="Prediction endpoints for Transaction Classifier and Anomaly Detector",
+#     version="1.0.0",
+# )
 
 # Allow the Next.js dev server (port 3000) to call this API.
 # For production: change allow_origins to your real domain.
