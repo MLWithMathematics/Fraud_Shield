@@ -7,7 +7,6 @@ export const metadata: Metadata = {
   description:
     "3-model fraud detection platform — XGBoost+LightGBM transaction scoring, IsolationForest+Autoencoder anomaly detection, GBM+LSTM account takeover detection. Combined risk engine. Built with Next.js 14 and FastAPI.",
   keywords: ["fraud detection", "AI", "machine learning", "XGBoost", "LightGBM", "autoencoder", "LSTM", "anomaly detection", "account takeover"],
-  manifest: "/manifest.json",
   themeColor: "#0052FF",
   appleWebApp: {
     capable: true,
@@ -22,7 +21,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="theme-color" content="#0052FF" />
-        <link rel="manifest" href="/manifest.json" />
         <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
