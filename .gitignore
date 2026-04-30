@@ -17,3 +17,10 @@ AGENTS.md
 CLAUDE.md 
 GEMINI.md  
 .claude 
+Docker/
+files
+backend/__pycache__
+public
+graphify-out/
+.agent/
+.graphifyignore
