@@ -29,8 +29,11 @@ try:
 except ImportError:
     TF_AVAILABLE = False
     print("⚠ TensorFlow not installed — Anomaly Detector endpoint will not work.")
-
+# ================================================================
+# 1. Create App & CORS
+# ================================================================
 # Initialize the app exactly ONCE
+
 app = FastAPI(
     title="FraudShield AI API",
     description="Prediction endpoints for Transaction Classifier and Anomaly Detector",
@@ -67,9 +70,7 @@ async def process_file(file: UploadFile = File(...)):
 # ================================================================
 # (Keep the rest of your model loading code exactly as it is below this line)
 
-# ================================================================
-# 1. Create App & CORS
-# ================================================================
+
 # app = FastAPI(
 #     title="FraudShield AI API",
 #     description="Prediction endpoints for Transaction Classifier and Anomaly Detector",
